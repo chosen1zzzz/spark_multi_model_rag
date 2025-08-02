@@ -5,7 +5,9 @@ import hashlib
 from typing import List, Dict, Any
 from tqdm import tqdm
 import sys
-sys.path.append(os.path.dirname(__file__))
+import concurrent.futures
+import random
+
 from get_text_embedding import get_text_embedding
 
 from dotenv import load_dotenv
@@ -117,7 +119,6 @@ class SimpleRAG:
             max_tokens=1024
         )
         import json as pyjson
-        sys.path.append(os.path.dirname(__file__))
         from extract_json_array import extract_json_array
         raw = completion.choices[0].message.content.strip()
         # 用 extract_json_array 提取 JSON 对象
@@ -155,7 +156,7 @@ class SimpleRAG:
 
 if __name__ == '__main__':
     # 路径可根据实际情况调整
-    chunk_json_path = os.path.join(os.path.dirname(__file__), 'all_pdf_page_chunks.json')
+    chunk_json_path = "./all_pdf_page_chunks.json"
     rag = SimpleRAG(chunk_json_path)
     rag.setup()
 
@@ -164,12 +165,10 @@ if __name__ == '__main__':
     FILL_UNANSWERED = True  # 未回答的也输出默认内容
 
     # 批量评测脚本：读取测试集，检索+大模型生成，输出结构化结果
-    test_path = os.path.join(os.path.dirname(__file__), 'datas/test.json')
+    test_path = "./datas/test.json"
     if os.path.exists(test_path):
         with open(test_path, 'r', encoding='utf-8') as f:
             test_data = json.load(f)
-        import concurrent.futures
-        import random
 
         # 记录所有原始索引
         all_indices = list(range(len(test_data)))
@@ -192,8 +191,7 @@ if __name__ == '__main__':
                 results = list(tqdm(executor.map(process_one, selected_indices), total=len(selected_indices), desc='并发批量生成'))
 
         # 先输出一份未过滤的原始结果（含 idx）
-        import json
-        raw_out_path = os.path.join(os.path.dirname(__file__), 'rag_top1_pred_raw.json')
+        raw_out_path = "./rag_top1_pred_raw.json"
         with open(raw_out_path, 'w', encoding='utf-8') as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
         print(f'已输出原始未过滤结果到: {raw_out_path}')
@@ -213,7 +211,7 @@ if __name__ == '__main__':
                     "page": "",
                 })
         # 输出结构化结果到json
-        out_path = os.path.join(os.path.dirname(__file__), 'rag_top1_pred.json')
+        out_path = "./rag_top1_pred.json"
         with open(out_path, 'w', encoding='utf-8') as f:
             json.dump(filtered_results, f, ensure_ascii=False, indent=2)
         print(f'已输出结构化检索+大模型生成结果到: {out_path}')
