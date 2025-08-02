@@ -164,7 +164,7 @@ if __name__ == '__main__':
     FILL_UNANSWERED = True  # 未回答的也输出默认内容
 
     # 批量评测脚本：读取测试集，检索+大模型生成，输出结构化结果
-    test_path = os.path.join(os.path.dirname(__file__), 'datas/多模态RAG图文问答挑战赛测试集.json')
+    test_path = os.path.join(os.path.dirname(__file__), 'datas/test.json')
     if os.path.exists(test_path):
         with open(test_path, 'r', encoding='utf-8') as f:
             test_data = json.load(f)
@@ -217,5 +217,7 @@ if __name__ == '__main__':
         with open(out_path, 'w', encoding='utf-8') as f:
             json.dump(filtered_results, f, ensure_ascii=False, indent=2)
         print(f'已输出结构化检索+大模型生成结果到: {out_path}')
+    else:
+        print("datas/test.json 不存在")
     
         
