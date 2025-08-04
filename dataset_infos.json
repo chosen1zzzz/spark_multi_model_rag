@@ -1,1 +1,0 @@
-{"default": {"features": {"question": {"_type": "Value"}, "filename": {"_type": "Value"}, "page": {"_type": "Value"}, "answer": {"_type": "Value"}}, "splits": {"train": {"name": "train", "dataset_name": "AISumerCamp_multiModal_RAG"}, "test": {"name": "test", "dataset_name": "AISumerCamp_multiModal_RAG"}}}}
