@@ -4,7 +4,7 @@ from pathlib import Path
 import json
 from collections import defaultdict
 import asyncio
-from image_utils.async_image_analysis import AsyncImageAnalysis
+# from image_utils.async_image_analysis import AsyncImageAnalysis
 
 def parse_all_pdfs(datas_dir, output_base_dir):
     """
@@ -69,26 +69,26 @@ def item_to_markdown(item, enable_image_caption=True):
         captions = item.get('image_caption', [])
         caption = captions[0] if captions else ''
         img_path = item.get('img_path', '')
-        # 如果没有caption，且允许视觉分析，调用多模态API补全
-        if enable_image_caption and not caption and img_path and os.path.exists(img_path):
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                async def get_caption():
-                    async with AsyncImageAnalysis(
-                        provider=vision_provider,
-                        api_key=vision_api_key,
-                        base_url=vision_base_url,
-                        vision_model=vision_model
-                    ) as analyzer:
-                        result = await analyzer.analyze_image(local_image_path=img_path)
-                        return result.get('title') or result.get('description') or ''
-                caption = loop.run_until_complete(get_caption())
-                loop.close()
-                if caption:
-                    item['image_caption'] = [caption]
-            except Exception as e:
-                print(f"图片解释失败: {img_path}, {e}")
+        # # 如果没有caption，且允许视觉分析，调用多模态API补全
+        # if enable_image_caption and not caption and img_path and os.path.exists(img_path):
+        #     try:
+        #         loop = asyncio.new_event_loop()
+        #         asyncio.set_event_loop(loop)
+        #         async def get_caption():
+        #             async with AsyncImageAnalysis(
+        #                 provider=vision_provider,
+        #                 api_key=vision_api_key,
+        #                 base_url=vision_base_url,
+        #                 vision_model=vision_model
+        #             ) as analyzer:
+        #                 result = await analyzer.analyze_image(local_image_path=img_path)
+        #                 return result.get('title') or result.get('description') or ''
+        #         caption = loop.run_until_complete(get_caption())
+        #         loop.close()
+        #         if caption:
+        #             item['image_caption'] = [caption]
+        #     except Exception as e:
+        #         print(f"图片解释失败: {img_path}, {e}")
         md = f"![{caption}]({img_path})\n"
         return md + "\n"
     elif item['type'] == 'table':

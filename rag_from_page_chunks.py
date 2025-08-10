@@ -23,6 +23,8 @@ class PageChunkLoader:
             return json.load(f)
 
 
+
+
 class EmbeddingModel:
     def __init__(self, batch_size: int = 64):
         self.api_key = os.getenv('LOCAL_API_KEY')
@@ -64,10 +66,18 @@ class SimpleVectorStore:
         return [self.chunks[i] for i in idxs]
 
 class SimpleRAG:
-    def __init__(self, chunk_json_path: str, model_path: str = None, batch_size: int = 32):
+    def __init__(self, chunk_json_path: str, batch_size: int = 32,
+                 llm_model_path: str = "/mnt/workspace/AISumerCamp_multiModal_RAG/models/Qwen3-8B"):
         self.loader = PageChunkLoader(chunk_json_path)
         self.embedding_model = EmbeddingModel(batch_size=batch_size)
         self.vector_store = SimpleVectorStore()
+
+        # 使用本地Qwen模型
+        self.use_local_llm = True
+        if self.use_local_llm:
+            self._load_local_llm(llm_model_path)
+
+
     def setup(self):
         print("加载所有页chunk...")
         chunks = self.loader.load_chunks()
@@ -89,18 +99,13 @@ class SimpleRAG:
         """
         检索+大模型生成式回答，返回结构化结果
         """
-        qwen_api_key = os.getenv('LOCAL_API_KEY')
-        qwen_base_url = os.getenv('LOCAL_BASE_URL')
-        qwen_model = os.getenv('LOCAL_TEXT_MODEL')
-        if not qwen_api_key or not qwen_base_url or not qwen_model:
-            raise ValueError('请在.env中配置LOCAL_API_KEY、LOCAL_BASE_URL、LOCAL_TEXT_MODEL')
         q_emb = self.embedding_model.embed_text(question)
         chunks = self.vector_store.search(q_emb, top_k)
-        # 拼接检索内容，带上元数据
+
         context = "\n".join([
             f"[文件名]{c['metadata']['file_name']} [页码]{c['metadata']['page']}\n{c['content']}" for c in chunks
         ])
-        # 明确要求输出JSON格式 answer/page/filename
+
         prompt = (
             f"你是一名专业的金融分析助手，请根据以下检索到的内容回答用户问题。\n"
             f"请严格按照如下JSON格式输出：\n"
@@ -108,19 +113,31 @@ class SimpleRAG:
             f"检索内容：\n{context}\n\n问题：{question}\n"
             f"请确保输出内容为合法JSON字符串，不要输出多余内容。"
         )
-        client = OpenAI(api_key=qwen_api_key, base_url=qwen_base_url)
-        completion = client.chat.completions.create(
-            model=qwen_model,
-            messages=[
-                {"role": "system", "content": "你是一名专业的金融分析助手。"},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.2,
-            max_tokens=1024
-        )
+
+        if self.use_local_llm:
+            # 使用本地模型
+            raw = self._generate_with_local_llm(prompt)
+        else:
+            # 使用API调用（原有逻辑）
+            qwen_api_key = os.getenv('LOCAL_API_KEY')
+            qwen_base_url = os.getenv('LOCAL_BASE_URL')
+            qwen_model = os.getenv('LOCAL_TEXT_MODEL')
+            if not qwen_api_key or not qwen_base_url or not qwen_model:
+                raise ValueError('请在.env中配置LOCAL_API_KEY、LOCAL_BASE_URL、LOCAL_TEXT_MODEL')
+
+            client = OpenAI(api_key=qwen_api_key, base_url=qwen_base_url)
+            completion = client.chat.completions.create(
+                model=qwen_model,
+                messages=[
+                    {"role": "system", "content": "你是一名专业的金融分析助手。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.2,
+                max_tokens=1024
+            )
+            raw = completion.choices[0].message.content.strip()
         import json as pyjson
         from extract_json_array import extract_json_array
-        raw = completion.choices[0].message.content.strip()
         # 用 extract_json_array 提取 JSON 对象
         json_str = extract_json_array(raw, mode='objects')
         if json_str:
@@ -153,6 +170,53 @@ class SimpleRAG:
             "retrieval_chunks": chunks
         }
 
+    def _load_local_llm(self, model_path: str):
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+        import torch
+
+        print(f"正在加载本地LLM模型: {model_path}")
+        self.tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        self.llm_model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            torch_dtype=torch.float16,
+            device_map="auto",
+            trust_remote_code=True
+        )
+        print("本地LLM模型加载完成")
+
+    def _generate_with_local_llm(self, prompt: str) -> str:
+        """使用本地LLM生成回答"""
+        import torch
+
+        messages = [
+            {"role": "system", "content": "你是一名专业的金融分析助手。"},
+            {"role": "user", "content": prompt}
+        ]
+
+        text = self.tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True
+        )
+
+        model_inputs = self.tokenizer([text], return_tensors="pt").to(self.llm_model.device)
+
+        with torch.no_grad():
+            generated_ids = self.llm_model.generate(
+                **model_inputs,
+                max_new_tokens=1024,
+                temperature=0.2,
+                do_sample=True,
+                pad_token_id=self.tokenizer.eos_token_id
+            )
+
+        generated_ids = [
+            output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
+        ]
+
+        response = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+        return response
+
 
 if __name__ == '__main__':
     # 路径可根据实际情况调整
@@ -161,7 +225,7 @@ if __name__ == '__main__':
     rag.setup()
 
     # 控制测试时读取的题目数量，默认只随机抽取10个，实际跑全部时设为None
-    TEST_SAMPLE_NUM = 10  # 设置为None则全部跑
+    TEST_SAMPLE_NUM = None  # 设置为None则全部跑
     FILL_UNANSWERED = True  # 未回答的也输出默认内容
 
     # 批量评测脚本：读取测试集，检索+大模型生成，输出结构化结果
@@ -179,19 +243,54 @@ if __name__ == '__main__':
                 selected_indices = sorted(random.sample(all_indices, TEST_SAMPLE_NUM))
 
         def process_one(idx):
+            import time
+            from openai import RateLimitError, APIError
+
             item = test_data[idx]
             question = item['question']
             tqdm.write(f"[{selected_indices.index(idx)+1}/{len(selected_indices)}] 正在处理: {question[:30]}...")
-            result = rag.generate_answer(question, top_k=5)
-            return idx, result
+
+            # 重试机制
+            max_retries = 3
+            base_delay = 1  # 基础延迟时间（秒）
+
+            for attempt in range(max_retries):
+                try:
+                    result = rag.generate_answer(question, top_k=5)
+                    return idx, result
+
+                except RateLimitError as e:
+                    if attempt < max_retries - 1:
+                        # 指数退避：1秒、2秒、4秒
+                        delay = base_delay * (2 ** attempt)
+                        tqdm.write(f"[{idx}] 速率限制，第{attempt+1}次重试，等待{delay}秒...")
+                        time.sleep(delay)
+                    else:
+                        tqdm.write(f"[{idx}] 重试{max_retries}次后仍失败: {e}")
+                        return idx, {"error": f"RateLimitError after {max_retries} retries: {str(e)}"}
+
+                except APIError as e:
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)
+                        tqdm.write(f"[{idx}] API错误，第{attempt+1}次重试，等待{delay}秒...")
+                        time.sleep(delay)
+                    else:
+                        tqdm.write(f"[{idx}] API错误重试{max_retries}次后仍失败: {e}")
+                        return idx, {"error": f"APIError after {max_retries} retries: {str(e)}"}
+
+                except Exception as e:
+                    tqdm.write(f"[{idx}] 未知错误: {e}")
+                    return idx, {"error": f"Unknown error: {str(e)}"}
+
+            return idx, {"error": "Max retries exceeded"}
 
         results = []
         if selected_indices:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                 results = list(tqdm(executor.map(process_one, selected_indices), total=len(selected_indices), desc='并发批量生成'))
 
         # 先输出一份未过滤的原始结果（含 idx）
-        raw_out_path = "./rag_top1_pred_raw.json"
+        raw_out_path = "/mnt/workspace/AISumerCamp_multiModal_RAG/outputs/output_v1_2/rag_top1_pred_raw.json"
         with open(raw_out_path, 'w', encoding='utf-8') as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
         print(f'已输出原始未过滤结果到: {raw_out_path}')
@@ -211,11 +310,11 @@ if __name__ == '__main__':
                     "page": "",
                 })
         # 输出结构化结果到json
-        out_path = "./rag_top1_pred.json"
+        out_path = "/mnt/workspace/AISumerCamp_multiModal_RAG/outputs/output_v1_2/rag_top1_pred.json"
         with open(out_path, 'w', encoding='utf-8') as f:
             json.dump(filtered_results, f, ensure_ascii=False, indent=2)
         print(f'已输出结构化检索+大模型生成结果到: {out_path}')
     else:
-        print("datas/test.json 不存在")
+        print(f'out_path 路径不存在')
     
         

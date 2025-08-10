@@ -2,6 +2,7 @@
 import copy
 import json
 import os
+os.environ['MINERU_MODEL_SOURCE'] = "modelscope"
 from pathlib import Path
 
 from loguru import logger
@@ -16,7 +17,7 @@ from mineru.backend.pipeline.pipeline_middle_json_mkcontent import union_make as
 from mineru.backend.pipeline.model_json_to_middle_json import result_to_middle_json as pipeline_result_to_middle_json
 from mineru.backend.vlm.vlm_middle_json_mkcontent import union_make as vlm_union_make
 from mineru.utils.models_download_utils import auto_download_and_get_model_root_path
-
+# os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
 
 def do_parse(
     output_dir,  # 解析结果输出目录
@@ -222,8 +223,10 @@ def parse_doc(
 
 if __name__ == '__main__':
     # 参数设置
-    __dir__ = os.path.dirname(os.path.abspath(__file__))
-    pdf_files_dir = os.path.join(__dir__, "pdfs")
+    __dir__ = Path(__file__).parent
+    pdf_files_dir = __dir__ / "datas" / "财报数据库"
+    # __dir__ = os.path.dirname(os.path.abspath(__file__))
+    # pdf_files_dir = os.path.join(__dir__, "pdfs")
     output_dir = os.path.join(__dir__, "output")
     pdf_suffixes = [".pdf"]
     image_suffixes = [".png", ".jpeg", ".jpg"]
@@ -237,7 +240,8 @@ if __name__ == '__main__':
     # os.environ['MINERU_MODEL_SOURCE'] = "modelscope"
 
     """如环境不支持 VLM，可使用 pipeline 模式"""
-    parse_doc(doc_path_list, output_dir, backend="pipeline")
+    #先只考虑前五个
+    parse_doc(doc_path_list[:1], output_dir, backend="pipeline")
 
     """如需启用 VLM 模式，将 backend 改为 'vlm-xxx'"""
     # parse_doc(doc_path_list, output_dir, backend="vlm-transformers")  # 通用。
