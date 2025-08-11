@@ -220,7 +220,8 @@ class SimpleRAG:
 
 if __name__ == '__main__':
     # 路径可根据实际情况调整
-    chunk_json_path = "./all_pdf_page_chunks.json"
+    # 使用增强分块文件
+    chunk_json_path = "./outputs/output_v1_3_with_chunk/all_pdf_enhanced_chunks.json"
     rag = SimpleRAG(chunk_json_path)
     rag.setup()
 
@@ -290,7 +291,7 @@ if __name__ == '__main__':
                 results = list(tqdm(executor.map(process_one, selected_indices), total=len(selected_indices), desc='并发批量生成'))
 
         # 先输出一份未过滤的原始结果（含 idx）
-        raw_out_path = "/mnt/workspace/AISumerCamp_multiModal_RAG/outputs/output_v1_2/rag_top1_pred_raw.json"
+        raw_out_path = "/mnt/workspace/AISumerCamp_multiModal_RAG/outputs/output_v1_3_with_chunk/rag_top1_pred_raw.json"
         with open(raw_out_path, 'w', encoding='utf-8') as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
         print(f'已输出原始未过滤结果到: {raw_out_path}')
@@ -310,7 +311,7 @@ if __name__ == '__main__':
                     "page": "",
                 })
         # 输出结构化结果到json
-        out_path = "/mnt/workspace/AISumerCamp_multiModal_RAG/outputs/output_v1_2/rag_top1_pred.json"
+        out_path = "/mnt/workspace/AISumerCamp_multiModal_RAG/outputs/output_v1_3_with_chunk/rag_top1_pred.json"
         with open(out_path, 'w', encoding='utf-8') as f:
             json.dump(filtered_results, f, ensure_ascii=False, indent=2)
         print(f'已输出结构化检索+大模型生成结果到: {out_path}')
