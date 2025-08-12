@@ -101,7 +101,7 @@ class APIReranker(BaseReranker):
 
             # 调用rerank API
             response = requests.post(
-                f"{self.base_url}/v1/rerank",
+                f"{self.base_url}/rerank",
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json"
