@@ -277,7 +277,7 @@ if __name__ == '__main__':
 
             for attempt in range(max_retries):
                 try:
-                    result = rag.generate_answer(question, top_k=5)
+                    result = rag.generate_answer_enhanced(question)
                     return idx, result
 
                 except RateLimitError as e:
