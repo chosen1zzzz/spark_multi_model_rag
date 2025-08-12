@@ -83,60 +83,61 @@ class APIReranker(BaseReranker):
         print(f"已初始化API重排模型: {self.model_name}")
 
     def rerank(self, query: str, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """使用LLM API进行重排"""
+        """使用Rerank API进行重排"""
         if not candidates:
             return candidates
 
         try:
-            from openai import OpenAI
-            client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+            import requests
 
-            # 构建重排prompt
-            candidates_text = ""
-            for i, candidate in enumerate(candidates):
+            # 准备文档列表
+            documents = []
+            for candidate in candidates:
                 content = candidate['content']
-                # 限制内容长度
-                if len(content) > 300:
-                    content = content[:300] + "..."
-                candidates_text += f"[{i+1}] {content}\n\n"
+                # 限制内容长度，避免超过API限制
+                if len(content) > 500:
+                    content = content[:500] + "..."
+                documents.append(content)
 
-            prompt = f"""请根据查询问题对以下文档片段进行相关性排序。
-
-查询问题: {query}
-
-文档片段:
-{candidates_text}
-
-请按相关性从高到低排序，只返回序号列表，用逗号分隔，如: 3,1,5,2,4
-不要输出其他内容。"""
-
-            response = client.chat.completions.create(
-                model=self.model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.1,
-                max_tokens=100
+            # 调用rerank API
+            response = requests.post(
+                f"{self.base_url}/v1/rerank",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": self.model_name,
+                    "query": query,
+                    "documents": documents
+                }
             )
 
-            # 解析排序结果
-            order_str = response.choices[0].message.content.strip()
-            order_indices = [int(x.strip()) - 1 for x in order_str.split(',')]
+            if response.status_code != 200:
+                raise Exception(f"Error code: {response.status_code} - {response.text}")
 
-            # 重新排序
+            result = response.json()
+
+            # 解析rerank结果
             reranked_results = []
-            for rank, idx in enumerate(order_indices):
-                if 0 <= idx < len(candidates):
-                    candidate_copy = candidates[idx].copy()
-                    # API重排使用排名作为分数（越小越好，转换为越大越好）
-                    candidate_copy['rerank_score'] = len(candidates) - rank
-                    reranked_results.append(candidate_copy)
+            if 'results' in result:
+                # 按rerank分数排序
+                for item in result['results']:
+                    idx = item['index']
+                    score = item['relevance_score']
 
-            # 添加未排序的候选（如果有）
-            used_indices = set(idx for idx in order_indices if 0 <= idx < len(candidates))
-            for i, candidate in enumerate(candidates):
-                if i not in used_indices:
-                    candidate_copy = candidate.copy()
-                    candidate_copy['rerank_score'] = 0
-                    reranked_results.append(candidate_copy)
+                    if 0 <= idx < len(candidates):
+                        candidate_copy = candidates[idx].copy()
+                        candidate_copy['rerank_score'] = float(score)
+                        reranked_results.append(candidate_copy)
+
+                # 按分数降序排序
+                reranked_results.sort(key=lambda x: x['rerank_score'], reverse=True)
+            else:
+                # 如果API返回格式不符合预期，返回原始顺序
+                reranked_results = candidates.copy()
+                for candidate in reranked_results:
+                    candidate['rerank_score'] = 0
 
             print(f"API重排完成: {len(reranked_results)} 个结果")
             return reranked_results
