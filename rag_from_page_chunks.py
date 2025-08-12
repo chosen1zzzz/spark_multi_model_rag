@@ -73,7 +73,7 @@ class SimpleRAG:
         self.vector_store = SimpleVectorStore()
 
         # 使用本地Qwen模型
-        self.use_local_llm = True
+        self.use_local_llm = False
         if self.use_local_llm:
             self._load_local_llm(llm_model_path)
 
@@ -222,8 +222,28 @@ if __name__ == '__main__':
     # 路径可根据实际情况调整
     # 使用增强分块文件
     chunk_json_path = "./outputs/output_v1_3_with_chunk/all_pdf_enhanced_chunks.json"
-    rag = SimpleRAG(chunk_json_path)
-    rag.setup()
+
+    # 选择RAG系统类型
+    use_enhanced_rag = True  # 设置为True使用增强检索，False使用基础检索
+
+    if use_enhanced_rag:
+        print("=== 使用增强检索系统 ===")
+        from enhanced_retrieval import create_enhanced_rag_system
+
+        # 创建增强RAG系统
+        rag = create_enhanced_rag_system(
+            chunk_json_path=chunk_json_path,
+            use_reranker=True,  # 是否使用重排模型
+            use_local_reranker_model=False,  # 使用API重排
+            reranker_device="auto"  # 自动选择设备（仅本地模型时有效）
+        )
+        rag.setup()
+
+
+    else:
+        print("=== 使用基础检索系统 ===")
+        rag = SimpleRAG(chunk_json_path)
+        rag.setup()
 
     # 控制测试时读取的题目数量，默认只随机抽取10个，实际跑全部时设为None
     TEST_SAMPLE_NUM = None  # 设置为None则全部跑
@@ -291,7 +311,7 @@ if __name__ == '__main__':
                 results = list(tqdm(executor.map(process_one, selected_indices), total=len(selected_indices), desc='并发批量生成'))
 
         # 先输出一份未过滤的原始结果（含 idx）
-        raw_out_path = "/mnt/workspace/AISumerCamp_multiModal_RAG/outputs/output_v1_3_with_chunk/rag_top1_pred_raw.json"
+        raw_out_path = "/mnt/workspace/AISumerCamp_multiModal_RAG/outputs/output_v1_4_reranker/rag_top1_pred_raw.json"
         with open(raw_out_path, 'w', encoding='utf-8') as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
         print(f'已输出原始未过滤结果到: {raw_out_path}')
@@ -311,7 +331,7 @@ if __name__ == '__main__':
                     "page": "",
                 })
         # 输出结构化结果到json
-        out_path = "/mnt/workspace/AISumerCamp_multiModal_RAG/outputs/output_v1_3_with_chunk/rag_top1_pred.json"
+        out_path = "/mnt/workspace/AISumerCamp_multiModal_RAG/outputs/output_v1_4_reranker/rag_top1_pred.json"
         with open(out_path, 'w', encoding='utf-8') as f:
             json.dump(filtered_results, f, ensure_ascii=False, indent=2)
         print(f'已输出结构化检索+大模型生成结果到: {out_path}')
