@@ -246,74 +246,6 @@ class EnhancedVectorStore:
         return results
 
 
-class QueryClassifier:
-    """查询分类器：判断查询类型以选择最佳检索策略"""
-    
-    @staticmethod
-    def classify_query(question: str) -> Dict[str, Any]:
-        """分类查询并返回检索策略"""
-        question_lower = question.lower()
-        
-        # 财务/表格查询
-        table_keywords = [
-            '营收', '收入', '利润', '财务', '数据', '统计', '比例', 
-            '增长率', '同比', '环比', '亿元', '万元', '百分比', '%'
-        ]
-        table_score = sum(1 for kw in table_keywords if kw in question_lower)
-        
-        # 技术查询
-        tech_keywords = [
-            '技术', '方案', '优势', '原理', '架构', '系统', '平台', 
-            '算法', 'hvdc', '巴拿马', '电源', '模块'
-        ]
-        tech_score = sum(1 for kw in tech_keywords if kw in question_lower)
-        
-        # 公司信息查询
-        company_keywords = [
-            '公司', '企业', '股权', '管理层', '业务', '发展', '历程', '介绍'
-        ]
-        company_score = sum(1 for kw in company_keywords if kw in question_lower)
-        
-        # 确定主要类型
-        scores = {
-            'table': table_score,
-            'technical': tech_score, 
-            'company': company_score
-        }
-        
-        primary_type = max(scores, key=scores.get)
-        confidence = scores[primary_type] / max(1, sum(scores.values()))
-        
-        # 推荐检索策略
-        if primary_type == 'table' and confidence > 0.3:
-            strategy = {
-                'type': 'table_focused',
-                'content_types': ['table', 'text'],
-                'recall_k': 15,
-                'final_k': 5
-            }
-        elif primary_type == 'technical' and confidence > 0.3:
-            strategy = {
-                'type': 'technical_focused', 
-                'content_types': ['text', 'heading'],
-                'recall_k': 20,
-                'final_k': 5
-            }
-        else:
-            strategy = {
-                'type': 'general',
-                'content_types': None,
-                'recall_k': 20,
-                'final_k': 5
-            }
-        
-        return {
-            'primary_type': primary_type,
-            'confidence': confidence,
-            'scores': scores,
-            'strategy': strategy
-        }
-
 
 def create_enhanced_rag_system(chunk_json_path: str,
                              use_reranker: bool = True,
@@ -496,5 +428,92 @@ def create_enhanced_rag_system(chunk_json_path: str,
             )
             
             return completion.choices[0].message.content.strip()
-    
+
+        def setup_multimodal(self):
+            """设置多模态功能"""
+            try:
+                from pathlib import Path
+                import os
+
+                # 检查图片embeddings文件
+                project_root = Path(__file__).parent
+                image_embeddings_file = project_root / "outputs" / "output_v1_5_vlm" / "image_embeddings.json"
+
+                if not image_embeddings_file.exists():
+                    print("图片embeddings文件不存在，将只使用文本检索")
+                    return False
+
+                # 创建多模态检索器
+                from multimodal_retriever import create_multimodal_retriever
+                self.multimodal_retriever = create_multimodal_retriever(
+                    text_rag_system=self,
+                    image_embeddings_file=str(image_embeddings_file)
+                )
+
+                # 创建VLM生成器
+                from vlm_generator import VLMGenerator
+                self.vlm_generator = VLMGenerator()
+
+                print("多模态功能已启用")
+                return True
+
+            except Exception as e:
+                print(f"多模态功能初始化失败: {e}")
+                print("将使用文本模式")
+                return False
+
+        def generate_answer_multimodal(self, question: str, text_top_k: int = 10, image_top_k: int = 5) -> Dict[str, Any]:
+            """多模态问答生成"""
+            try:
+                if not hasattr(self, 'multimodal_retriever') or not hasattr(self, 'vlm_generator'):
+                    print("多模态功能未初始化，回退到文本模式")
+                    return self.generate_answer_enhanced(question)
+
+                print(f"多模态问题: {question}")
+
+                # 使用多模态检索
+                search_results = self.multimodal_retriever.search_multimodal(
+                    query=question,
+                    text_top_k=text_top_k,
+                    image_top_k=image_top_k
+                )
+
+                # 使用GLM-4.1V生成答案
+                answer = self.vlm_generator.generate_multimodal_answer(
+                    question=question,
+                    multimodal_context=search_results,
+                    max_images=3
+                )
+
+                # 解析结果
+                try:
+                    import json
+                    result = json.loads(answer)
+                    result['retrieval_info'] = {
+                        'strategy': 'multimodal',
+                        'text_chunks': len(search_results.get("text_results", [])),
+                        'image_chunks': len(search_results.get("image_results", [])),
+                        'model': 'GLM-4.1V'
+                    }
+                    result['retrieval_chunks'] = {
+                        'text_results': search_results.get("text_results", []),
+                        'image_results': search_results.get("image_results", [])
+                    }
+                    return result
+                except json.JSONDecodeError:
+                    return {
+                        "answer": answer,
+                        "filename": "multimodal_result",
+                        "page": "unknown",
+                        "retrieval_info": {
+                            'strategy': 'multimodal',
+                            'text_chunks': len(search_results.get("text_results", [])),
+                            'image_chunks': len(search_results.get("image_results", []))
+                        }
+                    }
+
+            except Exception as e:
+                print(f"多模态生成失败，回退到文本模式: {e}")
+                return self.generate_answer_enhanced(question)
+
     return EnhancedRAG(chunk_json_path, reranker)

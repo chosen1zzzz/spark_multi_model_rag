@@ -250,6 +250,7 @@ if __name__ == '__main__':
 
     # 选择RAG系统类型
     use_enhanced_rag = True  # 设置为True使用增强检索，False使用基础检索
+    use_multimodal = True   # 设置为True使用多模态RAG，False使用纯文本RAG
 
     if use_enhanced_rag:
         print("=== 使用增强检索系统 ===")
@@ -264,6 +265,15 @@ if __name__ == '__main__':
         )
         rag.setup()
 
+        # 如果启用多模态，设置多模态功能
+        if use_multimodal:
+            print("=== 启用多模态功能 ===")
+            multimodal_enabled = rag.setup_multimodal()
+            if multimodal_enabled:
+                print("多模态功能已启用")
+            else:
+                print("多模态功能启用失败，将使用纯文本模式")
+                use_multimodal = False
 
     else:
         print("=== 使用基础检索系统 ===")
@@ -302,7 +312,11 @@ if __name__ == '__main__':
 
             for attempt in range(max_retries):
                 try:
-                    result = rag.generate_answer_enhanced(question)
+                    # 根据配置选择使用多模态或纯文本RAG
+                    if use_multimodal and hasattr(rag, 'generate_answer_multimodal'):
+                        result = rag.generate_answer_multimodal(question)
+                    else:
+                        result = rag.generate_answer_enhanced(question)
                     return idx, result
 
                 except RateLimitError as e:
@@ -336,7 +350,9 @@ if __name__ == '__main__':
                 results = list(tqdm(executor.map(process_one, selected_indices), total=len(selected_indices), desc='并发批量生成'))
 
         # 先输出一份未过滤的原始结果（含 idx）
-        raw_out_path = "/mnt/workspace/AISumerCamp_multiModal_RAG/outputs/output_v1_4_reranker/rag_top1_pred_raw.json"
+        output_dir = "./outputs/output_v1_5_vlm" if use_multimodal else "./outputs/output_v1_4_reranker"
+        os.makedirs(output_dir, exist_ok=True)
+        raw_out_path = f"{output_dir}/rag_top1_pred_raw.json"
         with open(raw_out_path, 'w', encoding='utf-8') as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
         print(f'已输出原始未过滤结果到: {raw_out_path}')
@@ -356,7 +372,7 @@ if __name__ == '__main__':
                     "page": "",
                 })
         # 输出结构化结果到json
-        out_path = "/mnt/workspace/AISumerCamp_multiModal_RAG/outputs/output_v1_4_reranker/rag_top1_pred.json"
+        out_path = f"{output_dir}/rag_top1_pred.json"
         with open(out_path, 'w', encoding='utf-8') as f:
             json.dump(filtered_results, f, ensure_ascii=False, indent=2)
         print(f'已输出结构化检索+大模型生成结果到: {out_path}')
