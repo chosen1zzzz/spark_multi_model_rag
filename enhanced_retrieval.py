@@ -457,13 +457,32 @@ def create_enhanced_rag_system(chunk_json_path: str,
             if not all([api_key, base_url, model]):
                 raise ValueError('请在.env中配置LOCAL_API_KEY、LOCAL_BASE_URL、LOCAL_TEXT_MODEL')
             
-            prompt = (
-                f"你是一名专业的金融分析助手，请根据以下检索到的内容回答用户问题。\n"
-                f"请严格按照如下JSON格式输出：\n"
-                f'{{"answer": "你的简洁回答", "filename": "来源文件名", "page": "来源页码"}}\n'
-                f"检索内容：\n{context}\n\n问题：{question}\n"
-                f"请确保输出内容为合法JSON字符串，不要输出多余内容。"
-            )
+            prompt = f"""你是一名高级金融分析助手，具备多源信息整合能力。
+你的核心职责是：利用重排序后的高质量信息源，提供最精确的分析结果。
+重要原则：宁可承认信息不足，也不能产生任何未经验证的内容。
+
+信息可信度评估标准：
+- 重排分数 ≥ 0.7：高可信度信息，可直接使用
+- 重排分数 0.3-0.7：中等可信度，需要交叉验证
+- 重排分数 < 0.3：低可信度，谨慎使用
+- 排名前2的chunk如果内容一致，可信度提升
+
+回答决策流程：
+1. 优先使用重排分数最高的信息
+2. 检查前3个chunk的信息一致性
+3. 高可信度信息 ≥ 1个 + 中等可信度信息 ≥ 1个且一致 → 可以回答
+4. 仅有低可信度信息或信息冲突 → "根据现有信息无法回答"
+5. 必须引用最可靠的信息来源
+
+严格按照JSON格式输出：
+{{"answer": "你的答案或'根据现有信息无法回答'", "filename": "最可靠来源的文件名", "page": "对应页码"}}
+
+检索内容：
+{context}
+
+问题：{question}
+
+请确保输出内容为合法JSON字符串，不要输出多余内容。"""
             
             client = OpenAI(api_key=api_key, base_url=base_url)
             completion = client.chat.completions.create(
