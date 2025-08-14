@@ -72,7 +72,24 @@ class ImageEmbeddingGenerator:
             
             for description, image_path in matches:
                 # 构建完整的图片路径
-                full_image_path = os.path.join(os.path.dirname(chunks_file), '..', '..', image_path)
+                # 从metadata中获取文件名，构建对应的图片目录路径
+                file_name = metadata.get('file_name', '')
+                if file_name:
+                    # 移除.pdf扩展名
+                    base_name = file_name.replace('.pdf', '')
+                    # 构建图片路径：data_base_json_content/文件名/文件名/auto/images/xxx.jpg
+                    full_image_path = os.path.join(
+                        os.path.dirname(chunks_file),
+                        'data_base_json_content',
+                        base_name,
+                        base_name,
+                        'auto',
+                        image_path
+                    )
+                else:
+                    # 如果没有文件名，尝试通用路径
+                    full_image_path = os.path.join(os.path.dirname(chunks_file), 'data_base_json_content', image_path)
+
                 full_image_path = os.path.normpath(full_image_path)
                 
                 image_info.append({
