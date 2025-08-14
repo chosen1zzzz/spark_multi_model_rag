@@ -56,8 +56,15 @@ class MultiModalRetriever:
         
         # 将embeddings转换为numpy数组以提高计算效率
         for item in data.get("embeddings", []):
+            if "image_embedding" in item:
+                item["image_embedding"] = np.array(item["image_embedding"])
+            if "text_embedding" in item:
+                item["text_embedding"] = np.array(item["text_embedding"])
+            if "context_embedding" in item:
+                item["context_embedding"] = np.array(item["context_embedding"])
+            # 兼容旧格式
             if "embedding" in item:
-                item["embedding"] = np.array(item["embedding"])
+                item["image_embedding"] = np.array(item["embedding"])
         
         print(f"加载了 {len(data.get('embeddings', []))} 个图片embeddings")
         return data
@@ -79,12 +86,13 @@ class MultiModalRetriever:
         
         return similarities
     
-    def search_images(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def search_images(self, query: str, top_k: int = 5, search_mode: str = "hybrid") -> List[Dict[str, Any]]:
         """
         基于文本查询检索相关图片
         Args:
             query: 查询文本
             top_k: 返回top-k结果
+            search_mode: 检索模式 - "image"(图片), "text"(描述), "context"(上下文), "hybrid"(混合)
         Returns:
             相关图片列表
         """
@@ -94,28 +102,91 @@ class MultiModalRetriever:
         try:
             # 使用CLIP对查询文本进行编码
             query_embedding = self.clip_model.encode([query], convert_to_numpy=True)[0]
-            
-            # 获取所有图片embeddings
-            image_embeddings = [item["embedding"] for item in self.image_data["embeddings"]]
-            
+
+            # 根据搜索模式获取对应的embeddings
+            if search_mode == "image":
+                embeddings = [item.get("image_embedding", item.get("embedding")) for item in self.image_data["embeddings"]]
+            elif search_mode == "text":
+                embeddings = [item.get("text_embedding") for item in self.image_data["embeddings"]]
+            elif search_mode == "context":
+                embeddings = [item.get("context_embedding") for item in self.image_data["embeddings"]]
+            else:  # hybrid mode
+                # 混合模式：计算图片、文本、上下文的加权相似度
+                image_embeddings = [item.get("image_embedding", item.get("embedding")) for item in self.image_data["embeddings"]]
+                text_embeddings = [item.get("text_embedding") for item in self.image_data["embeddings"]]
+                context_embeddings = [item.get("context_embedding") for item in self.image_data["embeddings"]]
+
+                # 过滤None值
+                valid_indices = []
+                valid_image_embs = []
+                valid_text_embs = []
+                valid_context_embs = []
+
+                for i, (img_emb, txt_emb, ctx_emb) in enumerate(zip(image_embeddings, text_embeddings, context_embeddings)):
+                    if img_emb is not None:
+                        valid_indices.append(i)
+                        valid_image_embs.append(img_emb)
+                        valid_text_embs.append(txt_emb if txt_emb is not None else np.zeros_like(img_emb))
+                        valid_context_embs.append(ctx_emb if ctx_emb is not None else np.zeros_like(img_emb))
+
+                if not valid_image_embs:
+                    return []
+
+                # 计算各种相似度
+                image_similarities = self._compute_similarity(query_embedding, valid_image_embs)
+                text_similarities = self._compute_similarity(query_embedding, valid_text_embs)
+                context_similarities = self._compute_similarity(query_embedding, valid_context_embs)
+
+                # 加权融合 (图片0.4, 文本0.4, 上下文0.2)
+                similarities = []
+                for i in range(len(image_similarities)):
+                    hybrid_score = (0.4 * image_similarities[i] +
+                                  0.4 * text_similarities[i] +
+                                  0.2 * context_similarities[i])
+                    similarities.append(hybrid_score)
+
+                # 构建结果
+                indexed_similarities = [(valid_indices[i], sim) for i, sim in enumerate(similarities)]
+                indexed_similarities.sort(key=lambda x: x[1], reverse=True)
+
+                results = []
+                for i, (idx, similarity) in enumerate(indexed_similarities[:top_k]):
+                    image_info = self.image_data["embeddings"][idx].copy()
+                    image_info["similarity_score"] = similarity
+                    image_info["rank"] = i + 1
+                    # 移除embedding以减少内存占用
+                    for emb_key in ["image_embedding", "text_embedding", "context_embedding", "embedding"]:
+                        if emb_key in image_info:
+                            del image_info[emb_key]
+                    results.append(image_info)
+
+                return results
+
+            # 过滤None值
+            valid_embeddings = [emb for emb in embeddings if emb is not None]
+            if not valid_embeddings:
+                return []
+
             # 计算相似度
-            similarities = self._compute_similarity(query_embedding, image_embeddings)
+            similarities = self._compute_similarity(query_embedding, valid_embeddings)
             
-            # 排序并获取top-k
+            # 排序并获取top-k (非混合模式)
             indexed_similarities = [(i, sim) for i, sim in enumerate(similarities)]
             indexed_similarities.sort(key=lambda x: x[1], reverse=True)
-            
+
             # 构建结果
             results = []
             for i, (idx, similarity) in enumerate(indexed_similarities[:top_k]):
                 image_info = self.image_data["embeddings"][idx].copy()
                 image_info["similarity_score"] = similarity
                 image_info["rank"] = i + 1
+                image_info["search_mode"] = search_mode
                 # 移除embedding以减少内存占用
-                if "embedding" in image_info:
-                    del image_info["embedding"]
+                for emb_key in ["image_embedding", "text_embedding", "context_embedding", "embedding"]:
+                    if emb_key in image_info:
+                        del image_info[emb_key]
                 results.append(image_info)
-            
+
             return results
             
         except Exception as e:

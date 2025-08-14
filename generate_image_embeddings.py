@@ -26,7 +26,7 @@ except ImportError:
 class ImageEmbeddingGenerator:
     """图片向量化生成器"""
     
-    def __init__(self, model_name: str = "clip-ViT-B-32"):
+    def __init__(self, model_name: str = "/mnt/workspace/AISumerCamp_multiModal_RAG/models/clip-ViT-B-32"):
         """
         初始化CLIP模型
         Args:
@@ -36,9 +36,15 @@ class ImageEmbeddingGenerator:
             raise ImportError("请先安装必要的依赖包")
             
         print(f"正在加载CLIP模型: {model_name}")
-        self.model = SentenceTransformer(model_name)
+
+        # 检测设备：有CUDA则用GPU，否则用CPU
+        import torch
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        print(f"检测到设备: {device}")
+
+        self.model = SentenceTransformer(model_name, device=device)
         self.model_name = model_name
-        print(f"CLIP模型加载完成")
+        print(f"CLIP模型加载完成，运行在: {device}")
     
     def extract_image_info_from_chunks(self, chunks_file: str) -> List[Dict[str, Any]]:
         """
@@ -127,15 +133,26 @@ class ImageEmbeddingGenerator:
             if not batch_images:
                 continue
             
-            # 生成embeddings
+            # 生成多模态embeddings
             try:
-                embeddings = self.model.encode(batch_images, convert_to_numpy=True)
-                
+                # 1. 图片embeddings
+                image_embeddings = self.model.encode(batch_images, convert_to_numpy=True)
+
+                # 2. 图片描述文本embeddings
+                descriptions = [info.get('description', '') for info in batch_info]
+                text_embeddings = self.model.encode(descriptions, convert_to_numpy=True)
+
+                # 3. 上下文文本embeddings
+                contexts = [info.get('chunk_content', '') for info in batch_info]
+                context_embeddings = self.model.encode(contexts, convert_to_numpy=True)
+
                 # 保存结果
-                for j, embedding in enumerate(embeddings):
+                for j in range(len(batch_info)):
                     info = batch_info[j].copy()
-                    info['embedding'] = embedding.tolist()  # 转换为列表以便JSON序列化
-                    info['embedding_dim'] = len(embedding)
+                    info['image_embedding'] = image_embeddings[j].tolist()
+                    info['text_embedding'] = text_embeddings[j].tolist()
+                    info['context_embedding'] = context_embeddings[j].tolist()
+                    info['embedding_dim'] = len(image_embeddings[j])
                     results.append(info)
                     
             except Exception as e:
@@ -162,7 +179,8 @@ class ImageEmbeddingGenerator:
                 "total_images": len(embeddings_data),
                 "embedding_dim": embeddings_data[0]['embedding_dim'] if embeddings_data else 0,
                 "created_time": datetime.now().isoformat(),
-                "description": "图片CLIP embeddings，用于多模态RAG检索"
+                "description": "多模态CLIP embeddings：图片、描述文本、上下文文本",
+                "embedding_types": ["image_embedding", "text_embedding", "context_embedding"]
             },
             "embeddings": embeddings_data
         }

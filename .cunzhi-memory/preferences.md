@@ -6,3 +6,5 @@
 - 用户希望chunk_content没有200字符限制，保存完整内容作为上下文
 - 用户希望将多模态功能集成到现有的rag脚本中，不需要交互模式，可以删除multimodal_rag_main.py
 - 用户希望在rag_from_page_chunks.py中直接添加多模态功能，不创建新脚本，参考现有的文本RAG运行方式
+- 用户已下载CLIP模型到/mnt/workspace/AISumerCamp_multiModal_RAG/models/clip-ViT-B-32，希望将图片和图片描述保存为JSON格式而不是生成embeddings
+- 用户希望同时对图片和图片描述进行embedding，并保存为JSON格式
